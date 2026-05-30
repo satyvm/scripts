@@ -214,6 +214,21 @@ def send_to_discord(issue: dict) -> None:
         print(f"  ❌ Network error sending to Discord: {e}")
 
 
+def send_startup_message() -> None:
+    """Send a startup test message to Discord."""
+    payload = {
+        "content": "🚀 **Good First Issue Tracker** has started up! Checking for new issues..."
+    }
+    try:
+        response = requests.post(WEBHOOK_URL, json=payload, timeout=10)
+        if response.status_code in (200, 204):
+            print("  ✅ Sent startup test message to Discord")
+        else:
+            print(f"  ❌ Failed to send startup message: {response.status_code} — {response.text[:200]}")
+    except requests.exceptions.RequestException as e:
+        print(f"  ❌ Network error sending startup message: {e}")
+
+
 # ==========================================
 # GITHUB SEARCH
 # ==========================================
@@ -359,6 +374,8 @@ def main():
         print("🔑 Authenticated — 30 search requests/min available.")
 
     print("=" * 60)
+
+    send_startup_message()
 
     while True:
         try:
