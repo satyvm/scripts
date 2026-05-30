@@ -18,4 +18,6 @@ repos = [
     "istio/istio",
     "grafana/grafana",
     "elastic/elasticsearch",
+    "NethermindEth/nethermind",
+    "sigp/lighthouse"
 ]
