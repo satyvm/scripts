@@ -1,0 +1,28 @@
+# Environment & secrets
+.env
+.venv
+.antigravitycli
+
+# Runtime state
+data/last_run_state.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# uv
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Antigravity CLI
+.antigravitycli/

@@ -1,0 +1,21 @@
+orgs = [
+    "kubeflow",
+    "kubernetes",
+    "ceph",
+    "ansible",
+    "openstack"
+]
+
+repos = [
+    "torvalds/linux",
+    "hashicorp/terraform",
+    "apache/kafka",
+    "envoyproxy/envoy",
+    "prometheus/prometheus",
+    "vllm-project/vllm",
+    "moby/moby",
+    "containerd/containerd",
+    "istio/istio",
+    "grafana/grafana",
+    "elastic/elasticsearch",
+]

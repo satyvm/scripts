@@ -1,0 +1,25 @@
+[project]
+name = "server-scripts"
+version = "0.1.0"
+description = "Collection of Python scripts for server automation"
+requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.32",
+    "python-dotenv>=1.1",
+]
+
+# ──────────────────────────────────────────────────
+# Script entrypoints — run with: uv run <name>
+# ──────────────────────────────────────────────────
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+good-first-issues = "scripts.good_first_issue_tracker:main"
+
+[tool.uv]
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["scripts"]
