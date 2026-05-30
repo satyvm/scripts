@@ -119,18 +119,14 @@ class GitHubRateLimiter:
             if self._remaining <= 2 and self._reset_time > now:
                 wait_time = self._reset_time - now + 1
                 print(f"  ⏳ Rate limit low ({self._remaining} remaining). Waiting {wait_time:.0f}s for reset...")
-                self._lock.release()
                 time.sleep(wait_time)
-                self._lock.acquire()
 
             # Moderate remaining — spread requests over time until reset
             elif self._remaining <= 5 and self._reset_time > now:
                 time_until_reset = self._reset_time - now
                 spacing = time_until_reset / max(self._remaining, 1)
                 sleep_time = min(spacing, 5.0)  # Cap at 5s
-                self._lock.release()
                 time.sleep(sleep_time)
-                self._lock.acquire()
 
             self._last_request_time = time.time()
 
@@ -223,20 +219,19 @@ def _fetch_org_repos_parallel(orgs: list[str], limit: int) -> set[str]:
 
 
 def build_all_repos() -> tuple[list[str], list[str]]:
-    """Combine custom.toml repos, custom.toml orgs, and data.toml repos into a deduplicated list."""
+    """Combine custom.toml repos and data.toml repos into a deduplicated list.
+
+    Orgs are returned separately for efficient org: search queries
+    rather than being resolved into individual repo: queries.
+    """
     toml_repos = load_repos_from_toml(DATA_TOML_FILE)
     custom_orgs, custom_repos = load_custom_toml(CUSTOM_TOML_FILE)
-    
-    all_repos = set(custom_repos) | set(toml_repos)
+
+    all_repos = sorted(set(custom_repos) | set(toml_repos))
     all_orgs = sorted(set(custom_orgs))
-    
-    if all_orgs:
-        print(f"🏢 Resolving {len(all_orgs)} orgs to their latest {ORG_REPO_LIMIT} repos (parallel)...")
-        org_repos = _fetch_org_repos_parallel(all_orgs, limit=ORG_REPO_LIMIT)
-        all_repos.update(org_repos)
-            
-    print(f"📦 Tracking {len(all_repos)} repositories total (orgs resolved)")
-    return sorted(all_repos), []
+
+    print(f"📦 Tracking {len(all_repos)} repositories + {len(all_orgs)} orgs")
+    return all_repos, all_orgs
 
 
 # ==========================================
@@ -271,17 +266,17 @@ def get_last_check_time() -> str:
     return default_time.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def load_seen_issues() -> set[int]:
+def load_seen_issues() -> dict:
     """Load the set of already-notified issue IDs to prevent duplicates."""
     state = _read_state()
-    return set(state.get("seen_ids", []))
+    return dict.fromkeys(state.get("seen_ids", []))
 
 
-def save_state(timestamp_str: str, seen_ids: set[int]) -> None:
+def save_state(timestamp_str: str, seen_ids: dict) -> None:
     """Save both timestamp and seen issue IDs (thread-safe)."""
     with _state_lock:
         # Trim to prevent unbounded growth
-        ids = list(seen_ids)[-10_000:] if len(seen_ids) > 10_000 else list(seen_ids)
+        ids = list(seen_ids.keys())[-10_000:] if len(seen_ids) > 10_000 else list(seen_ids.keys())
 
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         with open(STATE_FILE, "w") as f:
@@ -534,7 +529,7 @@ def check_for_issues(all_repos: list[str], all_orgs: list[str]) -> None:
                 if issue_id not in all_new_issues and issue_id not in seen_ids:
                     all_new_issues[issue_id] = item
                     send_to_discord(item)
-                    seen_ids.add(issue_id)
+                    seen_ids[issue_id] = None
 
         # Save state once after all chunks are processed
         save_state(current_time, seen_ids)
@@ -567,13 +562,13 @@ def main():
     print(f"🕐 First-run lookback: {FIRST_RUN_LOOKBACK_HOURS} hours")
     print(f"📂 Data dir: {DATA_DIR}")
     print(f"⚡ Concurrency: {MAX_GITHUB_WORKERS} workers, chunk size {CHUNK_SIZE}")
-    print(f"🏢 Org repo limit: {ORG_REPO_LIMIT}")
     print()
 
     all_repos, all_orgs = build_all_repos()
 
-    total_queries = (len(all_repos) + CHUNK_SIZE - 1) // CHUNK_SIZE
-    print(f"📡 ~{total_queries} API queries per cycle (was ~{(len(all_repos) + 14) // 15} with old chunk size)")
+    total_entities = len(all_repos) + len(all_orgs)
+    total_queries = (total_entities + CHUNK_SIZE - 1) // CHUNK_SIZE
+    print(f"📡 ~{total_queries} API queries per cycle ({len(all_repos)} repos + {len(all_orgs)} orgs)")
 
     if not GITHUB_TOKEN:
         print("⚠️  Without a token, GitHub allows only 10 search requests/min.")
