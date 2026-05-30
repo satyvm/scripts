@@ -94,6 +94,25 @@ def load_custom_toml(filepath: Path) -> tuple[list[str], list[str]]:
     return data.get("orgs", []), data.get("repos", [])
 
 
+def get_latest_org_repos(org: str, limit: int = 10) -> list[str]:
+    """Fetch the most recently updated repositories for an organization."""
+    url = f"https://api.github.com/orgs/{org}/repos?sort=updated&direction=desc&per_page={limit}"
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        if response.status_code == 403:
+            reset_time = response.headers.get("X-RateLimit-Reset")
+            if reset_time:
+                wait = max(int(reset_time) - int(time.time()), 1)
+                print(f"  ⏳ Rate limited fetching org repos. Waiting {wait}s...")
+                time.sleep(wait + 1)
+                response = requests.get(url, headers=HEADERS, timeout=10)
+        response.raise_for_status()
+        return [repo["full_name"] for repo in response.json()]
+    except requests.exceptions.RequestException as e:
+        print(f"  ❌ Error fetching repos for org {org}: {e}")
+        return []
+
+
 def build_all_repos() -> tuple[list[str], list[str]]:
     """Combine custom.toml repos, custom.toml orgs, and data.toml repos into a deduplicated list."""
     toml_repos = load_repos_from_toml(DATA_TOML_FILE)
@@ -102,8 +121,15 @@ def build_all_repos() -> tuple[list[str], list[str]]:
     all_repos = set(custom_repos) | set(toml_repos)
     all_orgs = sorted(set(custom_orgs))
     
-    print(f"📦 Tracking {len(all_repos)} repositories + {len(all_orgs)} organizations")
-    return sorted(all_repos), all_orgs
+    if all_orgs:
+        print(f"🏢 Resolving {len(all_orgs)} orgs to their latest 10 repos...")
+        for org in all_orgs:
+            latest_repos = get_latest_org_repos(org, limit=10)
+            all_repos.update(latest_repos)
+            time.sleep(0.5)  # slight pause to avoid rate limits
+            
+    print(f"📦 Tracking {len(all_repos)} repositories total (orgs resolved)")
+    return sorted(all_repos), []
 
 
 # ==========================================
@@ -321,25 +347,21 @@ def check_for_issues(all_repos: list[str], all_orgs: list[str]) -> None:
                 issue_id = item["id"]
                 if issue_id not in all_new_issues and issue_id not in seen_ids:
                     all_new_issues[issue_id] = item
+                    # Send immediately
+                    send_to_discord(item)
+                    seen_ids.add(issue_id)
+                    save_state(current_time, seen_ids)
+                    time.sleep(1)  # Prevent Discord webhook rate-limiting
 
             time.sleep(2)  # Respect GitHub's secondary rate limit
 
-    # Send notifications
+    # Summary log
     if not all_new_issues:
         print(f"  ℹ️  No new issues found. ({len(seen_ids)} previously seen)")
     else:
-        print(f"  🎯 Found {len(all_new_issues)} new issue(s)!")
+        print(f"  🎯 Total of {len(all_new_issues)} new issue(s) found and notified in this cycle.")
 
-        sorted_issues = sorted(
-            all_new_issues.values(),
-            key=lambda x: x.get("created_at", ""),
-        )
-
-        for issue in sorted_issues:
-            send_to_discord(issue)
-            seen_ids.add(issue["id"])
-            time.sleep(1)  # Prevent Discord webhook rate-limiting
-
+    # Final state save to capture the current timestamp even if no new issues
     save_state(current_time, seen_ids)
 
 

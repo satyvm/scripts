@@ -392,7 +392,6 @@ repositories = [
   'github.com/lightdash/lightdash',
   'github.com/lightningnetwork/lnd',
   'github.com/line/armeria',
-  'github.com/lingdojo/kana-dojo',
   'github.com/linkedin/cruise-control',
   'github.com/linkerd/linkerd2',
   'github.com/linq2db/linq2db',
