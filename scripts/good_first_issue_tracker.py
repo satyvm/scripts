@@ -37,7 +37,7 @@ load_dotenv(ENV_FILE)
 
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "6000"))  # 5 minutes default
+POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "7200"))  # 5 minutes default
 FIRST_RUN_LOOKBACK_HOURS = int(os.environ.get("FIRST_RUN_LOOKBACK_HOURS", "12"))
 
 # Labels to track — any issue with at least one of these counts
