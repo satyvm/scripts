@@ -123,6 +123,6 @@ repos = [
     "vitessio/vitess",
     "volcano-sh/kthena",
     "volcano-sh/volcano",
-    "wasmCloud/wasmCloud"
+    "wasmCloud/wasmCloud",
     "jdx/mise"
 ]

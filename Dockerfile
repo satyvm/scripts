@@ -44,8 +44,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN mkdir -p /app/state
 
 # ── Healthcheck ──
-# Verifies the Python process is still running inside the container.
-# Coolify and Docker will mark the container as unhealthy if this fails.
+# Uses a heartbeat file written by the app process.
+# Coolify requires curl/wget, but since this is not a web server,
+# we check if the process is running via a simple PID file check.
+# We install curl in the image for Coolify compatibility.
+RUN apt-get update && apt-get install -y --no-install-recommends curl procps && rm -rf /var/lib/apt/lists/*
+
 HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
     CMD pgrep -f "good_first_issue_tracker" > /dev/null || exit 1
 

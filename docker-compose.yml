@@ -18,9 +18,11 @@ services:
       - STATE_FILE=/app/state/last_run_state.json
     volumes:
       # Persist state across container restarts
-      - ./state:/app/state
+      - tracker-state:/app/state
     restart: unless-stopped
 
+volumes:
+  tracker-state:
     # Optional: limit resources
     # deploy:
     #   resources:
