@@ -29,6 +29,7 @@ orgs = [
 ]
 
 repos = [
+    "utmapp/UTM",
     "torvalds/linux",
     "hashicorp/terraform",
     "apache/kafka",
@@ -123,4 +124,5 @@ repos = [
     "volcano-sh/kthena",
     "volcano-sh/volcano",
     "wasmCloud/wasmCloud"
+    "jdx/mise"
 ]

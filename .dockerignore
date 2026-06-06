@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local environments
+.venv/
+venv/
+ENV/
+env/
+
+# Git
+.git/
+.gitignore
+
+# Antigravity CLI and Gemini files
+.antigravitycli/
+.gemini/
+
+# Local sensitive files
+.env
+data/last_run_state.json
+
+# OS files
+.DS_Store

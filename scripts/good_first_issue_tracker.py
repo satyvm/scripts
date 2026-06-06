@@ -32,7 +32,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 DATA_TOML_FILE = DATA_DIR / "github_repos.toml"
 CUSTOM_TOML_FILE = DATA_DIR / "custom.toml"
-STATE_FILE = DATA_DIR / "last_run_state.json"
+
+# Allow STATE_FILE to be overridden by an environment variable (crucial for Coolify/Docker deployments)
+STATE_FILE_ENV = os.environ.get("STATE_FILE")
+if STATE_FILE_ENV:
+    STATE_FILE = Path(STATE_FILE_ENV)
+else:
+    STATE_FILE = DATA_DIR / "last_run_state.json"
+
 ENV_FILE = PROJECT_ROOT / ".env"
 
 # ==========================================
@@ -278,7 +285,7 @@ def save_state(timestamp_str: str, seen_ids: dict) -> None:
         # Trim to prevent unbounded growth
         ids = list(seen_ids.keys())[-10_000:] if len(seen_ids) > 10_000 else list(seen_ids.keys())
 
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(STATE_FILE, "w") as f:
             json.dump({"last_checked": timestamp_str, "seen_ids": ids}, f)
 
