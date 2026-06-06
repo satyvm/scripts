@@ -557,8 +557,9 @@ def check_for_issues(all_repos: list[str], all_orgs: list[str]) -> None:
 def main():
     """Main entrypoint — called by `uv run good-first-issues`."""
     if not WEBHOOK_URL or WEBHOOK_URL == "your_discord_webhook_url_here":
-        print("❌ DISCORD_WEBHOOK_URL is not set. Configure your .env file.")
-        print(f"   Expected at: {ENV_FILE}")
+        print("❌ DISCORD_WEBHOOK_URL is not set.")
+        print("   If running locally, configure it in your .env file.")
+        print("   If running on Coolify/Docker, ensure it is set in the Environment Variables tab.")
         sys.exit(1)
 
     if not GITHUB_TOKEN or GITHUB_TOKEN == "your_github_token_here":

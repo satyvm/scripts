@@ -1,32 +1,56 @@
-# Use a lightweight Python base image
+# syntax=docker/dockerfile:1
+# ─────────────────────────────────────────────────────
+# Good First Issue Tracker — Shareable Docker Image
+#
+# This image contains NO secrets. All configuration is
+# injected at runtime via environment variables:
+#   docker run --env-file .env good-first-issues
+#
+# Required env vars:  DISCORD_WEBHOOK_URL, GITHUB_TOKEN
+# Optional env vars:  POLL_INTERVAL, FIRST_RUN_LOOKBACK_HOURS,
+#                      MAX_GITHUB_WORKERS, CHUNK_SIZE, ORG_REPO_LIMIT
+# ─────────────────────────────────────────────────────
+
 FROM python:3.12-slim-bookworm
 
-# Install uv from the official pre-built image
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# Install uv — pinned for reproducible builds
+COPY --from=ghcr.io/astral-sh/uv:0.7 /uv /uvx /bin/
 
-# Set working directory
 WORKDIR /app
 
-# Enable bytecode compilation
+# Enable bytecode compilation for faster startup
 ENV UV_COMPILE_BYTECODE=1
 
-# Copy the lockfile and pyproject.toml first to cache dependency installation
-COPY pyproject.toml uv.lock ./
+# ── State persistence ──
+# Write state to /app/state/ so it can be volume-mounted
+# and survive container restarts/redeploys.
+ENV STATE_FILE=/app/state/last_run_state.json
 
-# Install dependencies without installing the project itself
-# (since we want to cache dependencies separately from code changes)
+# ── Install dependencies (cached layer) ──
+COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project
 
-# Copy the rest of the application code
+# ── Copy application code ──
+# NOTE: .env is excluded via .dockerignore — secrets are
+# never baked into the image. They are injected at runtime.
 COPY . .
 
-# Install the project packages
+# ── Install the project itself ──
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen
 
-# Ensure our state directory exists and is writable
+# Ensure state directory exists
 RUN mkdir -p /app/state
 
-# Run the script using main.py so it's generalizable to other scripts if needed
+# ── Healthcheck ──
+# Verifies the Python process is still running inside the container.
+# Coolify and Docker will mark the container as unhealthy if this fails.
+HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
+    CMD pgrep -f "good_first_issue_tracker" > /dev/null || exit 1
+
+# Graceful shutdown — sends SIGINT so the script's KeyboardInterrupt
+# handler can save state before exiting.
+STOPSIGNAL SIGINT
+
 CMD ["uv", "run", "python", "main.py", "good-first-issues"]

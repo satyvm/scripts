@@ -21,5 +21,11 @@ env/
 .env
 data/last_run_state.json
 
+# Docker compose (local dev only)
+docker-compose.yml
+
+# State volume mount (local dev)
+state/
+
 # OS files
 .DS_Store

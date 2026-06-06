@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────
+# Local Development — docker compose up
+#
+# Secrets are injected at runtime from .env (never baked
+# into the image). State is persisted to ./state/ on the host.
+# ─────────────────────────────────────────────────────
+
+services:
+  tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: good-first-issue-tracker
+    env_file:
+      - .env
+    environment:
+      # Override state file path to use the mounted volume
+      - STATE_FILE=/app/state/last_run_state.json
+    volumes:
+      # Persist state across container restarts
+      - ./state:/app/state
+    restart: unless-stopped
+
+    # Optional: limit resources
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 256M
+    #       cpus: "0.5"

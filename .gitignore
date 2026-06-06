@@ -5,6 +5,7 @@
 
 # Runtime state
 data/last_run_state.json
+state/
 
 # Python
 __pycache__/
