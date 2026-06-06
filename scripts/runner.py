@@ -35,6 +35,60 @@ _status_file_lock = threading.Lock()
 _log_file_lock = threading.Lock()
 
 
+class ThreadLocalStream:
+    """A stream proxy that routes write/flush/etc. to a thread-local target stream if set.
+    Otherwise, it delegates to the original stream.
+    """
+    def __init__(self, original_stream):
+        self._original = original_stream
+        self._local = threading.local()
+
+    def set_target(self, target):
+        self._local.target = target
+
+    def clear_target(self):
+        if hasattr(self._local, "target"):
+            del self._local.target
+
+    @property
+    def _stream(self):
+        return getattr(self._local, "target", self._original)
+
+    def write(self, text: str) -> int:
+        return self._stream.write(text)
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+    def isatty(self) -> bool:
+        stream = self._stream
+        return stream.isatty() if hasattr(stream, "isatty") else False
+
+    def fileno(self) -> int:
+        stream = self._stream
+        if hasattr(stream, "fileno"):
+            return stream.fileno()
+        raise OSError("fileno not supported")
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+# Replace sys.stdout and sys.stderr with thread-local proxies once.
+# If they are already wrapped (e.g. on reload), extract the original stream to prevent nested wrapping.
+if isinstance(sys.stdout, ThreadLocalStream):
+    _real_stdout = sys.stdout._original
+else:
+    _real_stdout = sys.stdout
+    sys.stdout = ThreadLocalStream(_real_stdout)
+
+if isinstance(sys.stderr, ThreadLocalStream):
+    _real_stderr = sys.stderr._original
+else:
+    _real_stderr = sys.stderr
+    sys.stderr = ThreadLocalStream(_real_stderr)
+
+
 class OutputCapture:
     """Thread-safe ring buffer that captures stdout/stderr while still printing."""
 
@@ -63,6 +117,17 @@ class OutputCapture:
         with self._lock:
             self._buffer.clear()
 
+    def isatty(self) -> bool:
+        return self._original.isatty() if hasattr(self._original, "isatty") else False
+
+    def fileno(self) -> int:
+        if hasattr(self._original, "fileno"):
+            return self._original.fileno()
+        raise OSError("fileno not supported")
+
+    def __getattr__(self, name):
+        return getattr(self._original, name)
+
 
 class ScriptRunner:
     """Manages the lifecycle of a single registered script."""
@@ -83,7 +148,7 @@ class ScriptRunner:
         self.total_errors: int = 0
 
         # Output capture
-        self.output = OutputCapture(sys.stdout)
+        self.output = OutputCapture(_real_stdout)
 
         # Thread control
         self._thread: threading.Thread | None = None
@@ -171,10 +236,11 @@ class ScriptRunner:
         self._save_status()
         self._append_log("run_start")
 
-        # Redirect stdout/stderr for this script's thread
-        old_stdout, old_stderr = sys.stdout, sys.stderr
-        sys.stdout = self.output
-        sys.stderr = self.output
+        # Redirect stdout/stderr for this script's thread via the thread-local wrapper
+        if hasattr(sys.stdout, "set_target"):
+            sys.stdout.set_target(self.output)
+        if hasattr(sys.stderr, "set_target"):
+            sys.stderr.set_target(self.output)
 
         try:
             module = importlib.import_module(self.module_path)
@@ -210,8 +276,10 @@ class ScriptRunner:
             traceback.print_exc(file=self.output)
 
         finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
+            if hasattr(sys.stdout, "clear_target"):
+                sys.stdout.clear_target()
+            if hasattr(sys.stderr, "clear_target"):
+                sys.stderr.clear_target()
             self._save_status()
 
     def _save_status(self) -> None:
