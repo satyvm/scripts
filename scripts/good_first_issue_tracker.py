@@ -68,6 +68,18 @@ LABELS = [
     "starter",
     "help wanted",
     "low-hanging-fruit",
+    # Intermediate / slightly advanced labels
+    "good second issue",
+    "good-second-issue",
+    "medium",
+    "intermediate",
+    "difficulty/medium",
+    "difficulty/intermediate",
+    "difficulty: medium",
+    "difficulty: intermediate",
+    "moderate",
+    "size/medium",
+    "up-for-grabs",
 ]
 
 # Pre-compute a frozenset for fast O(1) label lookups

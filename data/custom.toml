@@ -25,7 +25,9 @@ orgs = [
     "ray-project",
     "bentoml",
     "huggingface",
-    "vllm-project"
+    "vllm-project",
+    "open-cluster-management-io",
+    "karmada-io"
 ]
 
 repos = [
