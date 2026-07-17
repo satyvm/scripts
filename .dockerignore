@@ -1,0 +1,31 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local environments
+.venv/
+venv/
+ENV/
+env/
+
+# Git
+.git/
+.gitignore
+
+# Antigravity CLI and Gemini files
+.antigravitycli/
+.gemini/
+
+# Local sensitive files
+.env
+data/last_run_state.json
+
+# Docker compose (local dev only)
+docker-compose.yml
+
+# State volume mount (local dev)
+state/
+
+# OS files
+.DS_Store

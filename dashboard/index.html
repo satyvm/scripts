@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Script Dashboard</title>
+    <meta name="description" content="Monitor and manage server automation scripts">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        /* ═══════════════════════════════════════════
+           Design System
+           ═══════════════════════════════════════════ */
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-card: rgba(17, 24, 39, 0.7);
+            --bg-card-hover: rgba(24, 33, 54, 0.8);
+            --bg-glass: rgba(255, 255, 255, 0.03);
+            --border: rgba(255, 255, 255, 0.06);
+            --border-hover: rgba(255, 255, 255, 0.12);
+
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+
+            --accent: #10b981;
+            --accent-glow: rgba(16, 185, 129, 0.15);
+            --accent-hover: #34d399;
+
+            --status-running: #10b981;
+            --status-idle: #f59e0b;
+            --status-error: #ef4444;
+            --status-stopped: #6b7280;
+
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+            --radius: 12px;
+            --radius-sm: 8px;
+            --radius-xs: 6px;
+
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+            --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        /* ═══════════════════════════════════════════
+           Reset & Base
+           ═══════════════════════════════════════════ */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Ambient background gradients */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -40%;
+            right: -20%;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(16, 185, 129, 0.06) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            bottom: -30%;
+            left: -15%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.04) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ═══════════════════════════════════════════
+           Layout
+           ═══════════════════════════════════════════ */
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ═══════════════════════════════════════════
+           Header
+           ═══════════════════════════════════════════ */
+        .header {
+            padding: 32px 0 24px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 32px;
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-title h1 {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-logo {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent), #06b6d4);
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .header-meta {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--status-running);
+            box-shadow: 0 0 8px var(--accent-glow);
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        .status-dot.disconnected {
+            background: var(--status-error);
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+            animation: none;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .last-refresh {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        /* ═══════════════════════════════════════════
+           Stats Bar
+           ═══════════════════════════════════════════ */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 16px 18px;
+            backdrop-filter: blur(12px);
+            transition: border-color 0.2s ease;
+        }
+
+        .stat-card:hover {
+            border-color: var(--border-hover);
+        }
+
+        .stat-label {
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .stat-value {
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stat-value.accent { color: var(--accent); }
+        .stat-value.warning { color: #f59e0b; }
+        .stat-value.error { color: #ef4444; }
+
+        /* ═══════════════════════════════════════════
+           Section Headers
+           ═══════════════════════════════════════════ */
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-secondary);
+        }
+
+        /* ═══════════════════════════════════════════
+           Script Cards
+           ═══════════════════════════════════════════ */
+        .scripts-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            margin-bottom: 36px;
+        }
+
+        .script-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 22px 24px;
+            backdrop-filter: blur(16px);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .script-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .script-card:hover {
+            border-color: var(--border-hover);
+            background: var(--bg-card-hover);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow);
+        }
+
+        .script-card:hover::before {
+            opacity: 1;
+        }
+
+        .script-card.status-running { --card-accent: var(--status-running); }
+        .script-card.status-idle { --card-accent: var(--status-idle); }
+        .script-card.status-error { --card-accent: var(--status-error); }
+        .script-card.status-stopped { --card-accent: var(--status-stopped); }
+
+        .card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            gap: 12px;
+        }
+
+        .card-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .card-name {
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-description {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .card-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+            white-space: nowrap;
+        }
+
+        .status-badge .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .status-badge.running {
+            background: rgba(16, 185, 129, 0.12);
+            color: #34d399;
+        }
+        .status-badge.running .dot {
+            background: var(--status-running);
+            animation: pulse-dot 1.5s ease-in-out infinite;
+        }
+
+        .status-badge.idle {
+            background: rgba(245, 158, 11, 0.12);
+            color: #fbbf24;
+        }
+        .status-badge.idle .dot { background: var(--status-idle); }
+
+        .status-badge.error {
+            background: rgba(239, 68, 68, 0.12);
+            color: #f87171;
+        }
+        .status-badge.error .dot { background: var(--status-error); }
+
+        .status-badge.stopped {
+            background: rgba(107, 114, 128, 0.12);
+            color: #9ca3af;
+        }
+        .status-badge.stopped .dot { background: var(--status-stopped); }
+
+        /* Card Stats Grid */
+        .card-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+            padding: 14px 16px;
+            background: var(--bg-glass);
+            border-radius: var(--radius-xs);
+            border: 1px solid var(--border);
+        }
+
+        .card-stat {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .card-stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .card-stat-value {
+            font-size: 14px;
+            font-weight: 500;
+            font-family: var(--font-mono);
+            color: var(--text-primary);
+        }
+
+        .card-stat-value.error-text {
+            color: #f87171;
+            font-family: var(--font-sans);
+            font-size: 13px;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xs);
+            background: var(--bg-glass);
+            color: var(--text-secondary);
+            font-family: var(--font-sans);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        .btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--accent-glow);
+        }
+
+        .btn:active {
+            transform: scale(0.97);
+        }
+
+        .btn.btn-primary {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(6, 182, 212, 0.1));
+            border-color: rgba(16, 185, 129, 0.3);
+            color: var(--accent);
+        }
+
+        .btn.btn-primary:hover {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(6, 182, 212, 0.15));
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .btn .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Log Panel Toggle */
+        .log-toggle {
+            font-size: 12px;
+            padding: 5px 12px;
+        }
+
+        /* ═══════════════════════════════════════════
+           Log Viewer (per card)
+           ═══════════════════════════════════════════ */
+        .card-log {
+            margin-top: 12px;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .card-log.expanded {
+            max-height: 320px;
+        }
+
+        .log-content {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xs);
+            padding: 12px 14px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .log-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .log-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .log-content::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .log-line { color: var(--text-muted); }
+        .log-line.success { color: #34d399; }
+        .log-line.error { color: #f87171; }
+        .log-line.warning { color: #fbbf24; }
+        .log-line.info { color: #60a5fa; }
+
+        /* ═══════════════════════════════════════════
+           Activity Timeline
+           ═══════════════════════════════════════════ */
+        .timeline {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px 22px;
+            backdrop-filter: blur(16px);
+            margin-bottom: 36px;
+            max-height: 380px;
+            overflow-y: auto;
+        }
+
+        .timeline::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .timeline::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .timeline::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 3px;
+        }
+
+        .timeline-entry {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+            animation: fadeIn 0.3s ease;
+        }
+
+        .timeline-entry:last-child {
+            border-bottom: none;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .timeline-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            flex-shrink: 0;
+        }
+
+        .timeline-icon.start {
+            background: rgba(16, 185, 129, 0.12);
+        }
+        .timeline-icon.end {
+            background: rgba(59, 130, 246, 0.12);
+        }
+        .timeline-icon.error {
+            background: rgba(239, 68, 68, 0.12);
+        }
+
+        .timeline-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .timeline-text {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .timeline-text strong {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .timeline-time {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            margin-top: 2px;
+        }
+
+        .timeline-empty {
+            text-align: center;
+            padding: 24px;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        /* ═══════════════════════════════════════════
+           Footer
+           ═══════════════════════════════════════════ */
+        .footer {
+            text-align: center;
+            padding: 24px 0 32px;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        /* ═══════════════════════════════════════════
+           Loading State
+           ═══════════════════════════════════════════ */
+        .loading-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 0;
+            gap: 16px;
+        }
+
+        .loading-spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .loading-text {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        /* ═══════════════════════════════════════════
+           Toast Notifications
+           ═══════════════════════════════════════════ */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            padding: 12px 18px;
+            border-radius: var(--radius-xs);
+            font-size: 13px;
+            font-weight: 500;
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border);
+            animation: slideIn 0.3s ease, fadeOut 0.3s ease 3s forwards;
+            max-width: 340px;
+        }
+
+        .toast.success {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .toast.error {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .toast.info {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        @keyframes fadeOut {
+            to { opacity: 0; transform: translateY(-10px); }
+        }
+
+        /* ═══════════════════════════════════════════
+           Confirm Dialog
+           ═══════════════════════════════════════════ */
+        .overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            z-index: 900;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            animation: fadeInOverlay 0.2s ease;
+        }
+
+        .overlay.active { display: flex; }
+
+        @keyframes fadeInOverlay {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .dialog {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            max-width: 420px;
+            width: 90%;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .dialog h3 {
+            font-size: 17px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .dialog p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+
+        .dialog-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .dialog .btn-cancel {
+            background: transparent;
+        }
+
+        .dialog .btn-confirm {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 182, 212, 0.15));
+            border-color: rgba(16, 185, 129, 0.4);
+            color: var(--accent);
+        }
+
+        /* ═══════════════════════════════════════════
+           Responsive
+           ═══════════════════════════════════════════ */
+        @media (max-width: 640px) {
+            .container { padding: 0 16px; }
+            .header { padding: 20px 0 16px; }
+            .header-title h1 { font-size: 20px; }
+            .header-meta { gap: 12px; }
+            .stats-bar { grid-template-columns: repeat(2, 1fr); }
+            .card-stats { grid-template-columns: repeat(2, 1fr); }
+            .script-card { padding: 16px 18px; }
+            .card-header { flex-direction: column; }
+            .card-actions { width: 100%; justify-content: flex-end; }
+        }
+
+        /* ═══════════════════════════════════════════
+           Update pulse animation
+           ═══════════════════════════════════════════ */
+        .update-pulse {
+            animation: cardPulse 0.4s ease;
+        }
+
+        @keyframes cardPulse {
+            0% { box-shadow: 0 0 0 0 var(--accent-glow); }
+            50% { box-shadow: 0 0 0 4px var(--accent-glow); }
+            100% { box-shadow: 0 0 0 0 transparent; }
+        }
+    </style>
+</head>
+<body>
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="overlay" id="confirmOverlay">
+        <div class="dialog">
+            <h3>⚡ Trigger Re-run</h3>
+            <p>This will immediately run <strong id="confirmScriptName"></strong>. If new issues are found, Discord notifications will be sent.</p>
+            <div class="dialog-actions">
+                <button class="btn btn-cancel" onclick="closeConfirm()">Cancel</button>
+                <button class="btn btn-confirm" id="confirmBtn" onclick="confirmRerun()">Run Now</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <header class="header">
+            <div class="header-top">
+                <div class="header-title">
+                    <div class="header-logo">⚡</div>
+                    <h1>Script Dashboard</h1>
+                </div>
+                <div class="header-meta">
+                    <div class="connection-status">
+                        <span class="status-dot" id="connectionDot"></span>
+                        <span id="connectionText">Connected</span>
+                    </div>
+                    <span class="last-refresh" id="lastRefresh">—</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="stats-bar" id="statsBar">
+            <div class="stat-card">
+                <div class="stat-label">Total Scripts</div>
+                <div class="stat-value accent" id="statTotal">—</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Running</div>
+                <div class="stat-value accent" id="statRunning">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Runs</div>
+                <div class="stat-value" id="statRuns">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Errors</div>
+                <div class="stat-value error" id="statErrors">0</div>
+            </div>
+        </div>
+
+        <div class="section-header">
+            <span class="section-title">📦 Scripts</span>
+        </div>
+        <div class="scripts-grid" id="scriptsGrid">
+            <div class="loading-state" id="loadingState">
+                <div class="loading-spinner"></div>
+                <span class="loading-text">Loading scripts...</span>
+            </div>
+        </div>
+
+        <div class="section-header">
+            <span class="section-title">📋 Activity Log</span>
+        </div>
+        <div class="timeline" id="timeline">
+            <div class="timeline-empty">No activity yet</div>
+        </div>
+
+        <footer class="footer">
+            Script Dashboard · Refreshes every 10s
+        </footer>
+    </div>
+
+    <script>
+        // ═══════════════════════════════════════════
+        // Config
+        // ═══════════════════════════════════════════
+        const TOKEN = '__DASHBOARD_TOKEN__';
+        const REFRESH_INTERVAL = 10000; // 10s
+        const API_HEADERS = {
+            'Authorization': `Bearer ${TOKEN}`,
+            'Content-Type': 'application/json',
+        };
+
+        let lastStatuses = {};
+        let pendingRerun = null;
+
+        // ═══════════════════════════════════════════
+        // API Helpers
+        // ═══════════════════════════════════════════
+        async function apiFetch(path, options = {}) {
+            try {
+                const res = await fetch(path, {
+                    ...options,
+                    headers: { ...API_HEADERS, ...options.headers },
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ detail: res.statusText }));
+                    throw new Error(err.detail || `HTTP ${res.status}`);
+                }
+                return await res.json();
+            } catch (err) {
+                setDisconnected();
+                throw err;
+            }
+        }
+
+        // ═══════════════════════════════════════════
+        // Connection Status
+        // ═══════════════════════════════════════════
+        function setConnected() {
+            const dot = document.getElementById('connectionDot');
+            const text = document.getElementById('connectionText');
+            dot.classList.remove('disconnected');
+            text.textContent = 'Connected';
+        }
+
+        function setDisconnected() {
+            const dot = document.getElementById('connectionDot');
+            const text = document.getElementById('connectionText');
+            dot.classList.add('disconnected');
+            text.textContent = 'Disconnected';
+        }
+
+        // ═══════════════════════════════════════════
+        // Toast Notifications
+        // ═══════════════════════════════════════════
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3500);
+        }
+
+        // ═══════════════════════════════════════════
+        // Confirm Dialog
+        // ═══════════════════════════════════════════
+        function showConfirm(scriptName) {
+            pendingRerun = scriptName;
+            document.getElementById('confirmScriptName').textContent = scriptName;
+            document.getElementById('confirmOverlay').classList.add('active');
+        }
+
+        function closeConfirm() {
+            pendingRerun = null;
+            document.getElementById('confirmOverlay').classList.remove('active');
+        }
+
+        async function confirmRerun() {
+            const name = pendingRerun;
+            closeConfirm();
+            if (!name) return;
+
+            try {
+                await apiFetch(`/api/rerun/${encodeURIComponent(name)}`, { method: 'POST' });
+                showToast(`Triggered re-run: ${name}`, 'success');
+                // Refresh immediately
+                setTimeout(refresh, 500);
+            } catch (err) {
+                showToast(`Failed: ${err.message}`, 'error');
+            }
+        }
+
+        // ═══════════════════════════════════════════
+        // Time Formatting
+        // ═══════════════════════════════════════════
+        function timeAgo(isoStr) {
+            if (!isoStr) return '—';
+            const diff = (Date.now() - new Date(isoStr).getTime()) / 1000;
+            if (diff < 0) return 'just now';
+            if (diff < 60) return `${Math.floor(diff)}s ago`;
+            if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+            return `${Math.floor(diff / 86400)}d ago`;
+        }
+
+        function countdown(isoStr) {
+            if (!isoStr) return '—';
+            const diff = (new Date(isoStr).getTime() - Date.now()) / 1000;
+            if (diff <= 0) return 'imminent';
+            if (diff < 60) return `${Math.floor(diff)}s`;
+            if (diff < 3600) return `${Math.floor(diff / 60)}m ${Math.floor(diff % 60)}s`;
+            return `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`;
+        }
+
+        function formatTime(isoStr) {
+            if (!isoStr) return '—';
+            return new Date(isoStr).toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+            });
+        }
+
+        // ═══════════════════════════════════════════
+        // Render Script Cards
+        // ═══════════════════════════════════════════
+        function renderScripts(statuses) {
+            const grid = document.getElementById('scriptsGrid');
+            const loading = document.getElementById('loadingState');
+            if (loading) loading.remove();
+
+            const entries = Object.entries(statuses);
+
+            if (entries.length === 0) {
+                grid.innerHTML = '<div class="loading-state"><span class="loading-text">No scripts registered</span></div>';
+                return;
+            }
+
+            // Update stats bar
+            const totalRuns = entries.reduce((sum, [, s]) => sum + (s.total_runs || 0), 0);
+            const totalErrors = entries.reduce((sum, [, s]) => sum + (s.total_errors || 0), 0);
+            const runningCount = entries.filter(([, s]) => s.status === 'running').length;
+
+            document.getElementById('statTotal').textContent = entries.length;
+            document.getElementById('statRunning').textContent = runningCount;
+            document.getElementById('statRuns').textContent = totalRuns;
+            document.getElementById('statErrors').textContent = totalErrors;
+
+            for (const [name, status] of entries) {
+                let card = document.getElementById(`card-${name}`);
+                const isNew = !card;
+
+                if (isNew) {
+                    card = document.createElement('div');
+                    card.id = `card-${name}`;
+                    card.className = 'script-card';
+                    grid.appendChild(card);
+                }
+
+                // Detect status change for pulse animation
+                const prevStatus = lastStatuses[name]?.status;
+                if (prevStatus && prevStatus !== status.status) {
+                    card.classList.add('update-pulse');
+                    setTimeout(() => card.classList.remove('update-pulse'), 500);
+                }
+
+                card.className = `script-card status-${status.status}`;
+
+                const isRunning = status.status === 'running';
+
+                card.innerHTML = `
+                    <div class="card-header">
+                        <div class="card-info">
+                            <div class="card-name">
+                                ${escapeHtml(name)}
+                                <span class="status-badge ${status.status}">
+                                    <span class="dot"></span>
+                                    ${status.status}
+                                </span>
+                            </div>
+                            <div class="card-description">${escapeHtml(status.description || '')}</div>
+                        </div>
+                        <div class="card-actions">
+                            <button class="btn log-toggle" onclick="toggleLog('${name}')">
+                                📄 Logs
+                            </button>
+                            <button class="btn btn-primary" onclick="showConfirm('${name}')" ${isRunning ? 'disabled' : ''}>
+                                ${isRunning ? '<span class="spinner"></span> Running...' : '▶ Run Now'}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-stats">
+                        <div class="card-stat">
+                            <span class="card-stat-label">Last Run</span>
+                            <span class="card-stat-value">${timeAgo(status.last_run_end)}</span>
+                        </div>
+                        <div class="card-stat">
+                            <span class="card-stat-label">Next Run</span>
+                            <span class="card-stat-value">${isRunning ? '—' : countdown(status.next_run)}</span>
+                        </div>
+                        <div class="card-stat">
+                            <span class="card-stat-label">Total Runs</span>
+                            <span class="card-stat-value">${status.total_runs ?? 0}</span>
+                        </div>
+                        <div class="card-stat">
+                            <span class="card-stat-label">Errors</span>
+                            <span class="card-stat-value ${(status.total_errors || 0) > 0 ? 'error-text' : ''}">${status.total_errors ?? 0}</span>
+                        </div>
+                        ${status.last_error ? `
+                        <div class="card-stat" style="grid-column: 1 / -1;">
+                            <span class="card-stat-label">Last Error</span>
+                            <span class="card-stat-value error-text">${escapeHtml(status.last_error)}</span>
+                        </div>` : ''}
+                    </div>
+                    <div class="card-log" id="log-${name}">
+                        <div class="log-content" id="log-content-${name}">Loading logs...</div>
+                    </div>
+                `;
+            }
+
+            lastStatuses = { ...statuses };
+        }
+
+        // ═══════════════════════════════════════════
+        // Toggle Log Viewer
+        // ═══════════════════════════════════════════
+        async function toggleLog(name) {
+            const logPanel = document.getElementById(`log-${name}`);
+            if (!logPanel) return;
+
+            if (logPanel.classList.contains('expanded')) {
+                logPanel.classList.remove('expanded');
+                return;
+            }
+
+            logPanel.classList.add('expanded');
+            const content = document.getElementById(`log-content-${name}`);
+
+            try {
+                const data = await apiFetch(`/api/output/${encodeURIComponent(name)}`);
+                const lines = data.lines || [];
+                if (lines.length === 0) {
+                    content.innerHTML = '<span class="log-line">No output yet</span>';
+                    return;
+                }
+                content.innerHTML = lines.map(line => {
+                    let cls = '';
+                    if (line.includes('✅') || line.includes('success')) cls = 'success';
+                    else if (line.includes('❌') || line.includes('Error') || line.includes('error')) cls = 'error';
+                    else if (line.includes('⚠️') || line.includes('⏳')) cls = 'warning';
+                    else if (line.includes('📊') || line.includes('📦') || line.includes('🚀')) cls = 'info';
+                    return `<div class="log-line ${cls}">${escapeHtml(line)}</div>`;
+                }).join('');
+                content.scrollTop = content.scrollHeight;
+            } catch (err) {
+                content.innerHTML = `<span class="log-line error">Failed to load: ${escapeHtml(err.message)}</span>`;
+            }
+        }
+
+        // ═══════════════════════════════════════════
+        // Render Activity Timeline
+        // ═══════════════════════════════════════════
+        function renderTimeline(logs) {
+            const timeline = document.getElementById('timeline');
+
+            if (!logs || logs.length === 0) {
+                timeline.innerHTML = '<div class="timeline-empty">No activity yet</div>';
+                return;
+            }
+
+            timeline.innerHTML = logs.map(entry => {
+                let icon = '▶️';
+                let iconClass = 'start';
+                let text = '';
+
+                switch (entry.event) {
+                    case 'run_start':
+                        icon = '▶️';
+                        iconClass = 'start';
+                        text = `<strong>${escapeHtml(entry.script)}</strong> started a scan cycle`;
+                        break;
+                    case 'run_end':
+                        icon = '✅';
+                        iconClass = 'end';
+                        text = `<strong>${escapeHtml(entry.script)}</strong> completed successfully`;
+                        break;
+                    case 'run_error':
+                        icon = '❌';
+                        iconClass = 'error';
+                        text = `<strong>${escapeHtml(entry.script)}</strong> failed: ${escapeHtml(entry.error || 'unknown')}`;
+                        break;
+                    default:
+                        text = `<strong>${escapeHtml(entry.script)}</strong>: ${escapeHtml(entry.event)}`;
+                }
+
+                return `
+                    <div class="timeline-entry">
+                        <div class="timeline-icon ${iconClass}">${icon}</div>
+                        <div class="timeline-body">
+                            <div class="timeline-text">${text}</div>
+                            <div class="timeline-time">${formatTime(entry.ts)} · ${timeAgo(entry.ts)}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // ═══════════════════════════════════════════
+        // Utilities
+        // ═══════════════════════════════════════════
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // ═══════════════════════════════════════════
+        // Main Refresh Loop
+        // ═══════════════════════════════════════════
+        async function refresh() {
+            try {
+                const [statuses, logs] = await Promise.all([
+                    apiFetch('/api/status'),
+                    apiFetch('/api/logs?limit=30'),
+                ]);
+
+                setConnected();
+                renderScripts(statuses);
+                renderTimeline(logs);
+
+                document.getElementById('lastRefresh').textContent =
+                    new Date().toLocaleTimeString('en-US', { hour12: false });
+            } catch (err) {
+                console.error('Refresh failed:', err);
+            }
+        }
+
+        // ═══════════════════════════════════════════
+        // Init
+        // ═══════════════════════════════════════════
+        refresh();
+        setInterval(refresh, REFRESH_INTERVAL);
+
+        // Also refresh log viewer for expanded panels
+        setInterval(() => {
+            document.querySelectorAll('.card-log.expanded').forEach(panel => {
+                const name = panel.id.replace('log-', '');
+                toggleLog(name); // Collapses then re-opens won't work — just refresh content
+                apiFetch(`/api/output/${encodeURIComponent(name)}`).then(data => {
+                    const content = document.getElementById(`log-content-${name}`);
+                    if (!content) return;
+                    const lines = data.lines || [];
+                    if (lines.length === 0) {
+                        content.innerHTML = '<span class="log-line">No output yet</span>';
+                        return;
+                    }
+                    content.innerHTML = lines.map(line => {
+                        let cls = '';
+                        if (line.includes('✅') || line.includes('success')) cls = 'success';
+                        else if (line.includes('❌') || line.includes('Error') || line.includes('error')) cls = 'error';
+                        else if (line.includes('⚠️') || line.includes('⏳')) cls = 'warning';
+                        else if (line.includes('📊') || line.includes('📦') || line.includes('🚀')) cls = 'info';
+                        return `<div class="log-line ${cls}">${escapeHtml(line)}</div>`;
+                    }).join('');
+                    // Auto-scroll to bottom
+                    const wasAtBottom = content.scrollHeight - content.scrollTop <= content.clientHeight + 50;
+                    if (wasAtBottom) content.scrollTop = content.scrollHeight;
+                }).catch(() => {});
+            });
+        }, 5000);
+    </script>
+</body>
+</html>

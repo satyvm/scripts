@@ -32,7 +32,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 DATA_TOML_FILE = DATA_DIR / "github_repos.toml"
 CUSTOM_TOML_FILE = DATA_DIR / "custom.toml"
-STATE_FILE = DATA_DIR / "last_run_state.json"
+
+# Allow STATE_FILE to be overridden by an environment variable (crucial for Coolify/Docker deployments)
+STATE_FILE_ENV = os.environ.get("STATE_FILE")
+if STATE_FILE_ENV:
+    STATE_FILE = Path(STATE_FILE_ENV)
+else:
+    STATE_FILE = DATA_DIR / "last_run_state.json"
+
 ENV_FILE = PROJECT_ROOT / ".env"
 
 # ==========================================
@@ -61,6 +68,18 @@ LABELS = [
     "starter",
     "help wanted",
     "low-hanging-fruit",
+    # Intermediate / slightly advanced labels
+    "good second issue",
+    "good-second-issue",
+    "medium",
+    "intermediate",
+    "difficulty/medium",
+    "difficulty/intermediate",
+    "difficulty: medium",
+    "difficulty: intermediate",
+    "moderate",
+    "size/medium",
+    "up-for-grabs",
 ]
 
 # Pre-compute a frozenset for fast O(1) label lookups
@@ -278,7 +297,7 @@ def save_state(timestamp_str: str, seen_ids: dict) -> None:
         # Trim to prevent unbounded growth
         ids = list(seen_ids.keys())[-10_000:] if len(seen_ids) > 10_000 else list(seen_ids.keys())
 
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(STATE_FILE, "w") as f:
             json.dump({"last_checked": timestamp_str, "seen_ids": ids}, f)
 
@@ -550,8 +569,9 @@ def check_for_issues(all_repos: list[str], all_orgs: list[str]) -> None:
 def main():
     """Main entrypoint — called by `uv run good-first-issues`."""
     if not WEBHOOK_URL or WEBHOOK_URL == "your_discord_webhook_url_here":
-        print("❌ DISCORD_WEBHOOK_URL is not set. Configure your .env file.")
-        print(f"   Expected at: {ENV_FILE}")
+        print("❌ DISCORD_WEBHOOK_URL is not set.")
+        print("   If running locally, configure it in your .env file.")
+        print("   If running on Coolify/Docker, ensure it is set in the Environment Variables tab.")
         sys.exit(1)
 
     if not GITHUB_TOKEN or GITHUB_TOKEN == "your_github_token_here":

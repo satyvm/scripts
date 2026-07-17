@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────
+# Server Scripts — Docker Compose (Coolify-compatible)
+#
+# Secrets are injected at runtime from .env (never baked
+# into the image). State is persisted via named volume.
+#
+# Coolify notes:
+#   - Uses internal port routing (no host port needed)
+#   - Set DASHBOARD_TOKEN in Coolify's Environment Variables tab
+#   - Health check: GET /health on port 8080
+# ─────────────────────────────────────────────────────
+
+services:
+  tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: server-scripts
+    env_file:
+      - .env
+    environment:
+      # Override state file path to use the mounted volume
+      - STATE_FILE=/app/state/last_run_state.json
+    volumes:
+      # Persist state across container restarts/redeploys
+      - tracker-state:/app/state
+    expose:
+      # Internal port — Coolify's reverse proxy handles external access
+      - "8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  tracker-state:
