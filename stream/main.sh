@@ -26,7 +26,9 @@ fi
 # --- Paths ---
 AUDIO_FILE="$SCRIPT_DIR/lofi.m4a"
 VIDEO_DEVICE="/dev/video0"
-DATA_FILE="$SCRIPT_DIR/.stream_focus.dat"
+DATA_FILE="$SCRIPT_DIR/.stream_focus.dat"   # legacy fallback
+STATS_DB="$SCRIPT_DIR/stream_focus_stats.sqlite3"
+STATS_CSV="$SCRIPT_DIR/stream_focus_stats.csv"
 
 # --- Temp files (RAM disk to avoid SD card wear) ---
 FOCUS_PNG_TMP="/dev/shm/stream_focus_time.tmp.png"
@@ -46,11 +48,21 @@ CPU_EXTREME=95      # % — CPU usage extreme
 RAM_WARN=85         # % — RAM usage warning
 RAM_EXTREME=95      # % — RAM usage extreme
 
+# --- Safety policy ---
+# Under-voltage is reported and logged, but NEVER stops the stream.
+AUTO_STOP_ON_UNDERVOLTAGE=false
+# CPU/RAM spikes are warnings only; they do not stop the stream.
+AUTO_STOP_ON_RESOURCE_EXTREME=false
+# Only sustained high temperature can stop FFmpeg. Set false to disable all health auto-stop.
+AUTO_STOP_ON_HIGH_TEMP=true
+TEMP_AUTO_STOP=82
+TEMP_AUTO_STOP_POLLS=5
+
 # --- Discord Webhook ---
-WEBHOOK_COOLDOWN=300    # seconds between webhook alerts (5 minutes)
+WARNING_WEBHOOK_COOLDOWN=1800  # warning/health alerts: at most once every 30 minutes
 
 # --- Overlay Style ---
-OVERLAY_BG='#000000C0'  # semi-transparent black background
+OVERLAY_BG='#00000080'  # semi-transparent black background
 OVERLAY_FG='white'      # text color
 OVERLAY_SIZE=20         # font pointsize
 
@@ -76,7 +88,7 @@ done
 # ==========================================
 # PRE-FLIGHT ERROR CHECKS
 # ==========================================
-for cmd in ffmpeg vcgencmd curl; do
+for cmd in ffmpeg vcgencmd curl sqlite3; do
     if ! command -v "$cmd" &> /dev/null; then
         echo -e "\e[31m❌ Fatal Error: '$cmd' is not installed or not in PATH.\e[0m"
         exit 1
@@ -121,6 +133,9 @@ TOTAL_FOCUS_SECONDS=0
 FOCUS_START_EPOCH=0
 DISPLAY_SECONDS=0
 LAST_FFMPEG_STR=""
+TOTAL_STREAM_SECONDS=0
+STREAM_START_EPOCH=0
+LAST_STATS_SAVE_EPOCH=0
 
 # Hardware Polling & Health Monitoring
 POLL_TICK=0
@@ -130,21 +145,111 @@ RAM_PCT="0"
 THROTTLE_HEX="0x0"
 CLOCK_MHZ="0"
 HEALTH_LEVEL="NORMAL"
-LAST_WEBHOOK_EPOCH=0
+LAST_WARNING_WEBHOOK_EPOCH=0
 PREV_CPU_IDLE=0
 PREV_CPU_TOTAL=0
+HOT_POLL_COUNT=0
+THROTTLE_CURRENT_DESC="None"
+THROTTLE_HISTORY_DESC="None"
 LOG_MSG="Ready to start."
 
 # ==========================================
 # INITIALIZATION & DAILY LOAD
 # ==========================================
-if [ -f "$DATA_FILE" ]; then
-    read -r FILE_DATE FILE_SECS < "$DATA_FILE"
-    if [ "$FILE_DATE" = "$TODAY" ]; then
-        TOTAL_FOCUS_SECONDS=$FILE_SECS
-        DISPLAY_SECONDS=$FILE_SECS
+init_stats_db() {
+    sqlite3 "$STATS_DB" <<'SQL'
+PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
+CREATE TABLE IF NOT EXISTS daily_stats (
+    day TEXT PRIMARY KEY,
+    focus_seconds INTEGER NOT NULL DEFAULT 0,
+    stream_seconds INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+SQL
+}
+
+load_today_stats() {
+    local row
+    row=$(sqlite3 -separator ' ' "$STATS_DB" "SELECT focus_seconds, stream_seconds FROM daily_stats WHERE day='$TODAY';")
+    if [ -n "$row" ]; then
+        read -r TOTAL_FOCUS_SECONDS TOTAL_STREAM_SECONDS <<< "$row"
+        DISPLAY_SECONDS=$TOTAL_FOCUS_SECONDS
+    elif [ -f "$DATA_FILE" ]; then
+        # One-time migration from the old single-day file.
+        read -r FILE_DATE FILE_SECS < "$DATA_FILE"
+        if [ "$FILE_DATE" = "$TODAY" ]; then
+            TOTAL_FOCUS_SECONDS=${FILE_SECS:-0}
+            DISPLAY_SECONDS=$TOTAL_FOCUS_SECONDS
+        fi
     fi
-fi
+}
+
+current_stream_seconds() {
+    local value=$TOTAL_STREAM_SECONDS
+    if [ "$STREAM_RUNNING" = true ]; then
+        value=$((TOTAL_STREAM_SECONDS + $(date +%s) - STREAM_START_EPOCH))
+    fi
+    echo "$value"
+}
+
+save_stats() {
+    local stream_now
+    stream_now=$(current_stream_seconds)
+    sqlite3 "$STATS_DB" "INSERT INTO daily_stats(day, focus_seconds, stream_seconds, updated_at)
+        VALUES('$TODAY', $DISPLAY_SECONDS, $stream_now, datetime('now','localtime'))
+        ON CONFLICT(day) DO UPDATE SET
+          focus_seconds=excluded.focus_seconds,
+          stream_seconds=excluded.stream_seconds,
+          updated_at=excluded.updated_at;"
+    echo "$TODAY $DISPLAY_SECONDS" > "$DATA_FILE"
+}
+
+show_stats() {
+    local days=${1:-14}
+    clear
+    echo "Stream & Focus Stats — last $days days"
+    echo "---------------------------------------------------------------"
+    printf "%-12s %12s %12s %10s
+" "Date" "Focus" "Stream" "Focus %"
+    sqlite3 -separator '|' "$STATS_DB" "WITH RECURSIVE dates(day) AS (
+      SELECT date('now','localtime','-' || ($days-1) || ' days')
+      UNION ALL SELECT date(day,'+1 day') FROM dates WHERE day < date('now','localtime')
+    )
+    SELECT dates.day,
+           COALESCE(d.focus_seconds,0),
+           COALESCE(d.stream_seconds,0)
+    FROM dates LEFT JOIN daily_stats d ON d.day=dates.day ORDER BY dates.day;" |
+    while IFS='|' read -r day focus stream; do
+        fh=$((focus/3600)); fm=$(((focus%3600)/60))
+        sh=$((stream/3600)); sm=$(((stream%3600)/60))
+        pct=0; [ "$stream" -gt 0 ] && pct=$((focus*100/stream))
+        printf "%-12s %6d:%02d %6d:%02d %9d%%
+" "$day" "$fh" "$fm" "$sh" "$sm" "$pct"
+    done
+    echo "---------------------------------------------------------------"
+    sqlite3 -separator '|' "$STATS_DB" "SELECT COALESCE(SUM(focus_seconds),0), COALESCE(SUM(stream_seconds),0) FROM daily_stats WHERE day >= date('now','localtime','-' || ($days-1) || ' days');" |
+    while IFS='|' read -r focus stream; do
+        printf "Totals: focus %dh %02dm | stream %dh %02dm
+" $((focus/3600)) $(((focus%3600)/60)) $((stream/3600)) $(((stream%3600)/60))
+    done
+    echo
+    echo "Press any key to return..."
+    read -n 1
+    clear
+}
+
+export_stats_csv() {
+    sqlite3 -header -csv "$STATS_DB" "SELECT day, focus_seconds, stream_seconds,
+      ROUND(focus_seconds/3600.0,2) AS focus_hours,
+      ROUND(stream_seconds/3600.0,2) AS stream_hours,
+      CASE WHEN stream_seconds > 0 THEN ROUND(focus_seconds*100.0/stream_seconds,1) ELSE 0 END AS focus_percent
+      FROM daily_stats ORDER BY day;" > "$STATS_CSV"
+    LOG_MSG="Stats exported to $STATS_CSV"
+}
+
+init_stats_db
+load_today_stats
 
 # Build the font argument conditionally (empty string = use ImageMagick built-in)
 IM_FONT_ARG=()
@@ -154,7 +259,7 @@ fi
 
 # Generate the initial overlay image so FFmpeg doesn't crash on startup
 $IM_CMD -background "$OVERLAY_BG" -fill "$OVERLAY_FG" "${IM_FONT_ARG[@]}" -pointsize "$OVERLAY_SIZE" \
-       label:"Focus: 00H:00M" \
+       label:"Focus: 00:00" \
        "PNG32:$FOCUS_PNG_FILE" 2>/dev/shm/im_error.log
 
 if [ ! -f "$FOCUS_PNG_FILE" ]; then
@@ -203,7 +308,7 @@ cleanup() {
         CURRENT_SESSION_SECONDS=$((NOW - FOCUS_START_EPOCH))
         DISPLAY_SECONDS=$((TOTAL_FOCUS_SECONDS + CURRENT_SESSION_SECONDS))
     fi
-    echo "$TODAY $DISPLAY_SECONDS" > "$DATA_FILE"
+    save_stats
 
     rm -f "$FOCUS_PNG_FILE" "$FOCUS_PNG_TMP"
     tput cnorm
@@ -247,7 +352,7 @@ update_ui() {
     tput cup 3 26
     printf "Time : \e[36m%02d:%02d:%02d\e[0m   \n" $TUI_H $TUI_M $TUI_S
 
-    echo -n "  [Q] Quit                 "
+    echo -n "  [Q] Quit [A] Stats       "
     tput cup 4 26
     printf "CPU : \e[36m%3s%%\e[0m RAM : \e[36m%3s%%\e[0m  \n" "$CPU_PCT" "$RAM_PCT"
 
@@ -313,18 +418,38 @@ check_health() {
         reasons="${reasons}RAM:${RAM_PCT}% "
     fi
 
-    # Throttle flags (bits 0-3 = current state)
+    # Throttle flags: low bits are current; bits 16-19 are historical/sticky.
     local thr_int=$((THROTTLE_HEX))
+    THROTTLE_CURRENT_DESC=""
+    THROTTLE_HISTORY_DESC=""
     if [ $((thr_int & 1)) -ne 0 ]; then
-        level="EXTREME"; reasons="${reasons}Undervoltage! "
-    fi
-    if [ $((thr_int & 4)) -ne 0 ]; then
-        [ "$level" != "EXTREME" ] && level="WARNING"
-        reasons="${reasons}Throttled "
+        [ "$level" = "NORMAL" ] && level="WARNING"
+        reasons="${reasons}Under-voltage "
+        THROTTLE_CURRENT_DESC="${THROTTLE_CURRENT_DESC}Under-voltage "
     fi
     if [ $((thr_int & 2)) -ne 0 ]; then
-        [ "$level" != "EXTREME" ] && level="WARNING"
-        reasons="${reasons}FreqCapped "
+        [ "$level" = "NORMAL" ] && level="WARNING"
+        reasons="${reasons}Freq-capped "
+        THROTTLE_CURRENT_DESC="${THROTTLE_CURRENT_DESC}Freq-capped "
+    fi
+    if [ $((thr_int & 4)) -ne 0 ]; then
+        [ "$level" = "NORMAL" ] && level="WARNING"
+        reasons="${reasons}Throttled "
+        THROTTLE_CURRENT_DESC="${THROTTLE_CURRENT_DESC}Throttled "
+    fi
+    [ $((thr_int & 8)) -ne 0 ] && THROTTLE_CURRENT_DESC="${THROTTLE_CURRENT_DESC}Soft-temp-limit "
+    [ $((thr_int & 0x10000)) -ne 0 ] && THROTTLE_HISTORY_DESC="${THROTTLE_HISTORY_DESC}Under-voltage "
+    [ $((thr_int & 0x20000)) -ne 0 ] && THROTTLE_HISTORY_DESC="${THROTTLE_HISTORY_DESC}Freq-capped "
+    [ $((thr_int & 0x40000)) -ne 0 ] && THROTTLE_HISTORY_DESC="${THROTTLE_HISTORY_DESC}Throttled "
+    [ $((thr_int & 0x80000)) -ne 0 ] && THROTTLE_HISTORY_DESC="${THROTTLE_HISTORY_DESC}Soft-temp-limit "
+    : "${THROTTLE_CURRENT_DESC:=None}"
+    : "${THROTTLE_HISTORY_DESC:=None}"
+
+    # Only sustained high temperature is allowed to auto-stop the stream.
+    if [ "${temp_int:-0}" -ge "$TEMP_AUTO_STOP" ]; then
+        HOT_POLL_COUNT=$((HOT_POLL_COUNT + 1))
+    else
+        HOT_POLL_COUNT=0
     fi
 
     # --- Recovery Check ---
@@ -335,24 +460,23 @@ check_health() {
     # --- Actions on Warning/Extreme ---
     if [ "$level" != "NORMAL" ]; then
         local now=$(date +%s)
-        if [ $((now - LAST_WEBHOOK_EPOCH)) -ge "$WEBHOOK_COOLDOWN" ]; then
-            LAST_WEBHOOK_EPOCH=$now
+        if [ $((now - LAST_WARNING_WEBHOOK_EPOCH)) -ge "$WARNING_WEBHOOK_COOLDOWN" ]; then
+            LAST_WARNING_WEBHOOK_EPOCH=$now
             send_health_webhook "$level" "$reasons"
         fi
 
-        if [ "$level" = "EXTREME" ] && [ "$STREAM_RUNNING" = true ]; then
+        if [ "$AUTO_STOP_ON_HIGH_TEMP" = true ] && [ "$HOT_POLL_COUNT" -ge "$TEMP_AUTO_STOP_POLLS" ] && [ "$STREAM_RUNNING" = true ]; then
+            TOTAL_STREAM_SECONDS=$(current_stream_seconds)
             kill "$FFMPEG_PID" 2>/dev/null
             STREAM_RUNNING=false
-            if [ "$FOCUS_RUNNING" = true ]; then
-                FOCUS_RUNNING=false
-                TOTAL_FOCUS_SECONDS=$DISPLAY_SECONDS
-                echo "$TODAY $TOTAL_FOCUS_SECONDS" > "$DATA_FILE"
-            fi
-            LOG_MSG="🛑 EXTREME: Stream and focus auto-stopped! ${reasons}"
+            STREAM_START_EPOCH=0
+            save_stats
+            send_stream_stopped_webhook "Thermal safety stop: sustained ${TEMP_STR}°C"
+            LOG_MSG="🛑 Sustained ${TEMP_STR}°C: stream stopped for thermal safety."
         elif [ "$level" = "EXTREME" ]; then
-            LOG_MSG="🔴 EXTREME: ${reasons}"
+            LOG_MSG="🔴 EXTREME (no auto-stop): ${reasons}"
         else
-            LOG_MSG="⚠️ WARNING: ${reasons}"
+            LOG_MSG="⚠️ WARNING (stream continues): ${reasons}"
         fi
     fi
 
@@ -370,16 +494,7 @@ send_health_webhook() {
     fi
     [ "$STREAM_RUNNING" = true ] && stream_status="Running" || stream_status="Stopped"
 
-    # Decode throttle flags for human-readable output
-    local thr_desc="None" thr_int=$((THROTTLE_HEX))
-    if [ "$thr_int" -ne 0 ]; then
-        thr_desc=""
-        [ $((thr_int & 1)) -ne 0 ] && thr_desc="${thr_desc}Under-voltage "
-        [ $((thr_int & 2)) -ne 0 ] && thr_desc="${thr_desc}Freq-capped "
-        [ $((thr_int & 4)) -ne 0 ] && thr_desc="${thr_desc}Throttled "
-        [ $((thr_int & 8)) -ne 0 ] && thr_desc="${thr_desc}Soft-temp-limit "
-        : "${thr_desc:=$THROTTLE_HEX}"
-    fi
+    local thr_desc="Now: ${THROTTLE_CURRENT_DESC} | History: ${THROTTLE_HISTORY_DESC}"
 
     curl -s -H "Content-Type: application/json" -X POST -d "{
         \"embeds\": [{
@@ -392,6 +507,33 @@ send_health_webhook() {
                 {\"name\": \"⚡ Throttle\", \"value\": \"${thr_desc}\", \"inline\": true},
                 {\"name\": \"🔄 Clock\", \"value\": \"${CLOCK_MHZ} MHz\", \"inline\": true},
                 {\"name\": \"📡 Stream\", \"value\": \"${stream_status} (${STREAM_RES})\", \"inline\": true}
+            ]
+        }]
+    }" "$DISCORD_URL" > /dev/null 2>&1 &
+}
+
+send_stream_stopped_webhook() {
+    local reason="$1"
+    local focus_now stream_now focus_h focus_m stream_h stream_m
+
+    focus_now=$(current_focus_seconds)
+    stream_now=$TOTAL_STREAM_SECONDS
+    focus_h=$((focus_now / 3600)); focus_m=$(((focus_now % 3600) / 60))
+    stream_h=$((stream_now / 3600)); stream_m=$(((stream_now % 3600) / 60))
+
+    # This notification is intentionally NOT rate-limited.
+    curl -s -H "Content-Type: application/json" -X POST -d "{
+        \"embeds\": [{
+            \"title\": \"🛑 Stream stopped\",
+            \"color\": 16711680,
+            \"description\": \"${reason}\",
+            \"fields\": [
+                {\"name\": \"📡 Resolution\", \"value\": \"${STREAM_RES}\", \"inline\": true},
+                {\"name\": \"⏱ Streamed today\", \"value\": \"${stream_h}h ${stream_m}m\", \"inline\": true},
+                {\"name\": \"🎯 Focus today\", \"value\": \"${focus_h}h ${focus_m}m\", \"inline\": true},
+                {\"name\": \"🌡 SoC Temp\", \"value\": \"${TEMP_STR}°C\", \"inline\": true},
+                {\"name\": \"💻 CPU\", \"value\": \"${CPU_PCT}%\", \"inline\": true},
+                {\"name\": \"🧠 RAM\", \"value\": \"${RAM_PCT}%\", \"inline\": true}
             ]
         }]
     }" "$DISCORD_URL" > /dev/null 2>&1 &
@@ -412,8 +554,10 @@ while true; do
     # --- DAILY RESET CHECK ---
     CURRENT_TODAY=$(date +%Y-%m-%d)
     if [ "$CURRENT_TODAY" != "$TODAY" ]; then
+        save_stats
         TODAY=$CURRENT_TODAY
         TOTAL_FOCUS_SECONDS=0
+        TOTAL_STREAM_SECONDS=0
         DISPLAY_SECONDS=0
         if [ "$FOCUS_RUNNING" = true ]; then
             FOCUS_START_EPOCH=$(date +%s)
@@ -431,7 +575,7 @@ while true; do
     # --- DYNAMIC IMAGE GENERATION ---
     FF_H=$((DISPLAY_SECONDS / 3600))
     FF_M=$(((DISPLAY_SECONDS % 3600) / 60))
-    CURRENT_FFMPEG_STR=$(printf "Focus: %02dH:%02dM" $FF_H $FF_M)
+    CURRENT_FFMPEG_STR=$(printf "Focus: %02d:%02d" $FF_H $FF_M)
 
     if [ "$CURRENT_FFMPEG_STR" != "$LAST_FFMPEG_STR" ]; then
         # Create image to a temp file first
@@ -452,15 +596,25 @@ while true; do
         check_health
     fi
 
+    # --- PERIODIC STATS SAVE (every 30 seconds) ---
+    NOW_EPOCH=$(date +%s)
+    if [ $((NOW_EPOCH - LAST_STATS_SAVE_EPOCH)) -ge 30 ]; then
+        save_stats
+        LAST_STATS_SAVE_EPOCH=$NOW_EPOCH
+    fi
+
     # --- PROCESS MONITORING ---
     if [ "$STREAM_RUNNING" = true ]; then
         if ! kill -0 "$FFMPEG_PID" 2>/dev/null; then
+            TOTAL_STREAM_SECONDS=$(current_stream_seconds)
             STREAM_RUNNING=false
+            STREAM_START_EPOCH=0
             if [ "$FOCUS_RUNNING" = true ]; then
                 FOCUS_RUNNING=false
                 TOTAL_FOCUS_SECONDS=$DISPLAY_SECONDS
-                echo "$TODAY $TOTAL_FOCUS_SECONDS" > "$DATA_FILE"
+                save_stats
             fi
+            send_stream_stopped_webhook "FFmpeg exited unexpectedly"
             LOG_MSG="❌ FFmpeg crashed! Stream and focus stopped."
         fi
     fi
@@ -473,14 +627,19 @@ while true; do
     case $key in
         s|S)
             if [ "$STREAM_RUNNING" = true ]; then
+                TOTAL_STREAM_SECONDS=$(current_stream_seconds)
                 kill "$FFMPEG_PID" 2>/dev/null
                 STREAM_RUNNING=false
+                STREAM_START_EPOCH=0
                 if [ "$FOCUS_RUNNING" = true ]; then
                     FOCUS_RUNNING=false
                     TOTAL_FOCUS_SECONDS=$DISPLAY_SECONDS
-                    echo "$TODAY $TOTAL_FOCUS_SECONDS" > "$DATA_FILE"
+                    save_stats
+                    send_stream_stopped_webhook "Stopped manually by user"
                     LOG_MSG="Stream and focus stopped successfully."
                 else
+                    save_stats
+                    send_stream_stopped_webhook "Stopped manually by user"
                     LOG_MSG="Stream stopped successfully."
                 fi
             else
@@ -512,6 +671,7 @@ while true; do
 
                     FFMPEG_PID=$!
                     STREAM_RUNNING=true
+                    STREAM_START_EPOCH=$(date +%s)
                     LOG_MSG="Stream started at ${STREAM_RES}! (PID: $FFMPEG_PID)"
                     fi
                 fi
@@ -521,7 +681,7 @@ while true; do
             if [ "$FOCUS_RUNNING" = true ]; then
                 FOCUS_RUNNING=false
                 TOTAL_FOCUS_SECONDS=$DISPLAY_SECONDS
-                echo "$TODAY $TOTAL_FOCUS_SECONDS" > "$DATA_FILE"
+                save_stats
                 LOG_MSG="Focus time paused."
             else
                 FOCUS_RUNNING=true
@@ -552,6 +712,14 @@ while true; do
                 STREAM_RES="1080p"
                 LOG_MSG="Resolution set to 1080p (1920x1080, MJPEG)"
             fi
+            ;;
+        a|A)
+            save_stats
+            show_stats "${STATS_DAYS:-14}"
+            ;;
+        x|X)
+            save_stats
+            export_stats_csv
             ;;
         q|Q)
             cleanup
